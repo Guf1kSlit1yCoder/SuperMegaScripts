@@ -439,7 +439,7 @@ local Settings = (function() local s,r = pcall(function() return loadstring(game
 if not StellarHubMenu or not Settings then return end
 
 local Window = StellarHubMenu:Create({
-    Title = 'AltronEngine [ROST]', Size = UDim2.new(0, 500, 0, 350).
+    Title = 'AltronEngine [ROST]', Size = UDim2.new(0, 200, 0, 150).
     Position = UDim2.new(0.5,0,0.5,0), ShowOnCreate = true, PerformanceMode = false,
     TweenSpeed = 0.3, UnloadTotal = true, PlayerListEnabled = false,
     WatermarkEnabled = true, WatermarkText = 'ALTRON rost alpha',
