@@ -473,7 +473,6 @@ local secWorldEnv = CreateSection(lWld, "Окружение мира")
 AddCheckbox(secWorldEnv, "Fullbright", "Fullbright")
 AddCheckbox(secWorldEnv, "Радужное небо", "RainbowSky")
 AddCheckbox(secWorldEnv, "Убрать траву", "NoGrass")
-AddSlider(secWorldEnv, "Время суток", 0, 24, 14, "TimeOfDay")
 
 local secWorldChams = CreateSection(rWld, "ВХ на Предметы")
 AddCheckbox(secWorldChams, "Hemp (Конопля) ESP", "HempEsp")
@@ -695,9 +694,8 @@ local function GetBots()
     return bots
 end
 
-task.spawn(function()
+        task.spawn(function()
     while task.wait(2) do
-        if not Toggles.RainbowSky then Lighting.ClockTime = Toggles.TimeOfDay end
         pcall(function() if Workspace:FindFirstChild("Terrain") then Workspace.Terrain.Decoration = not Toggles.NoGrass end end)
         
         if Toggles.BotEsp then
