@@ -1,873 +1,756 @@
---[[
-    LebroTools - Ultimate Premium Edition (V4.1)
-    Разработчик: LebroTools Team
-    Telegram: https://t.me/LebroToolsRost
-    
-    Модификация: 
-    - ВОЗВРАЩЕНО ОРИГИНАЛЬНОЕ INTRO (Приветствие) с обновленным текстом.
-    - Оптимизирован Auto-Farm (кэш вместо скана).
-    - World ESP (Предметы).
-    - VisCheck (Черный если за стеной, Белый если видим).
-    - ФИШКИ "ОТ СЕБЯ": Spinbot (Крутилка), B-Hop (Распрыжка), Expand Hitboxes (Увеличение голов), Dash, Crosshair.
-]]
+if not game:IsLoaded() then
+    game.Loaded:Wait()
+end
 
-local CoreGui = game:GetService("CoreGui")
-local UserInputService = game:GetService("UserInputService")
+--------------------------------------------------------------------------------
+-- Анти-чит байпас (Вд)
+--------------------------------------------------------------------------------
+pcall(function()
+    local replicatedStorageService = game:GetService("ReplicatedStorage")
+    local rayCastHandlerModule = require(replicatedStorageService.Modules.Utils.RayCastHandler)
+    local touchDetectHandlerModule = require(replicatedStorageService.Modules.Utils.TouchDetectHandler)
+
+    touchDetectHandlerModule.init = newcclosure(function()
+        return newcclosure(function() return end)
+    end)
+
+    rayCastHandlerModule.init = newcclosure(function()
+        return newcclosure(function() return end)
+    end)
+end)
+
+--------------------------------------------------------------------------------
+-- Инициализация сервисов
+--------------------------------------------------------------------------------
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
 local Workspace = game:GetService("Workspace")
 local Lighting = game:GetService("Lighting")
-local SoundService = game:GetService("SoundService")
+local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
-
-local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
-local Mouse = LocalPlayer:GetMouse()
+local LocalPlayer = Players.LocalPlayer
 
--- Глобальная ссылка на канал
-local ChannelLink = "https://t.me/LebroToolsRost"
+-- 1. ЗАГРУЗКА МОБИЛЬНОЙ БИБЛИОТЕКИ ИНТЕРФЕЙСА
+local MobileRepo = 'https://raw.githubusercontent.com/alper213/lianardo-ui-libary-mobil-support/main/'
+local Library = loadstring(game:HttpGet(MobileRepo .. 'LinoriaModded.lua'))()
 
-print("Инициализация LebroTools Ultimate V4.1...")
+-- Создание окна
+local Window = Library:CreateWindow({
+    Title = 'Neverlor', 
+    Center = true, 
+    AutoShow = true, 
+    TabPadding = 8, 
+    MenuFadeTime = 0.2
+})
 
--- [ ВСЕ НАСТРОЙКИ (TOGGLES) ] --
-local Toggles = {
-    -- Combat
-    SilentAim = false, CamAimbot = false, TriggerBot = false, AimSmooth = 20, AimPart = "Head",
-    DrawFov = false, DynamicFov = false, FovRadius = 150, FovColor = Color3.fromRGB(123, 97, 255),
-    IgnoreFriends = false, IgnoreClan = false, OnlyOnHit = false, HitSound = false,
-    
-    -- Новые PvP фишки
-    ExpandHitboxes = false, HitboxSize = 5,
-    Spinbot = false, SpinSpeed = 50,
-    BunnyHop = false,
-    
-    -- Weapon Mods
-    NoRecoil = false, NoSpread = false, MaxVel = false, ZeroGrav = false,
-    
-    -- Visuals / ESP
-    PlayerEsp = false, BotEsp = false, VisCheck = false, EspMaxDist = 2000, SmoothSpeed = 8.00,
-    EspName = false, EspDistance = false, EspWeapon = false, EspSkeleton = false, EspCount = true,
-    FontSize = 14.00, EspBox = false, EspHealth = false,
-    EspLines = false, LineThickness = 1.00, TargetMarker = false,
-    InventoryViewer = false,
-    
-    -- Player
-    WalkSpeed = 16, JumpPower = 50, InfJump = false, Noclip = false, GhostSpeed = 50,
-    
-    -- World
-    CustomSky = false, Fullbright = false, NoGrass = false, NoLeaves = false, TimeOfDay = 14,
-    HempEsp = false, CrateEsp = false, BpEsp = false, TcEsp = false,
-    
-    -- Misc & AutoFarm
-    AutoOre = false, AutoTree = false,
-    
-    -- Фишки 
-    Crosshair = false,
-    AutoHeal = false,
-    RainbowSky = false,
-    DashEnabled = false
+local Tabs = {
+    Combat = Window:AddTab('Combat'),
+    Visuals = Window:AddTab('Visuals'),
+    Settings = Window:AddTab('Settings')
 }
 
-local Cache = { 
-    PlayerVisuals = {}, BotVisuals = {}, WorldInstances = {}, 
-    SilentTarget = nil, CamTarget = nil, ToolModHooked = false, 
-    OriginalLighting = {}, FarmNodes = { Ores = {}, Trees = {} },
-    WorldEspItems = {}
+--------------------------------------------------------------------------------
+-- ФИОЛЕТОВАЯ ТЕМА
+--------------------------------------------------------------------------------
+local ThemeManager = {
+    MainColor = Color3.fromRGB(35, 15, 60),       
+    AccentColor = Color3.fromRGB(150, 50, 250),   
+    BackgroundColor = Color3.fromRGB(15, 10, 22), 
+    OutlineColor = Color3.fromRGB(65, 30, 110),   
+    TextColor = Color3.fromRGB(240, 230, 255)     
 }
 
-local Freecam = { Active = false, SavedCFrame = nil, CamPart = nil, RenderConn = nil, IsUp = false, IsDown = false }
+pcall(function()
+    Library.BackgroundColor = ThemeManager.BackgroundColor
+    Library.AccentColor = ThemeManager.AccentColor
+    Library.MainColor = ThemeManager.MainColor
+    Library.TextColor = ThemeManager.TextColor
+    Library.OutlineColor = ThemeManager.OutlineColor
+end)
 
--- Палитра UI
-local Theme = {
-    MainBg = Color3.fromRGB(18, 18, 22),
-    TopBar = Color3.fromRGB(13, 13, 16),
-    SectionBg = Color3.fromRGB(23, 23, 28),
-    Accent = Color3.fromRGB(123, 97, 255),
-    AccentDark = Color3.fromRGB(85, 60, 200),
-    Text = Color3.fromRGB(245, 245, 245),
-    TextDark = Color3.fromRGB(135, 135, 145),
-    Border = Color3.fromRGB(35, 35, 45)
+local Cache = {CurrentSilentTarget = nil, Connections = {}}
+local UI_Elements = {
+    FovCircle = Drawing.new("Circle"),
+    TargetDot = Drawing.new("Circle")
 }
+UI_Elements.FovCircle.Thickness = 1.5
+UI_Elements.FovCircle.NumSides = 64
+UI_Elements.FovCircle.Color = ThemeManager.AccentColor
+UI_Elements.FovCircle.Filled = false
+UI_Elements.TargetDot.Radius = 5
+UI_Elements.TargetDot.Thickness = 1
+UI_Elements.TargetDot.NumSides = 20
+UI_Elements.TargetDot.Color = Color3.fromRGB(255, 0, 150)
+UI_Elements.TargetDot.Filled = true
 
--- [ СОЗДАНИЕ СЕТКИ GUI ] --
-local EspGui = Instance.new("ScreenGui")
-EspGui.Name = "LebroToolsGUI_V4_1"
-EspGui.ResetOnSpawn = false
-EspGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-pcall(function() syn.protect_gui(EspGui) end)
-pcall(function() EspGui.Parent = CoreGui end)
-if not EspGui.Parent then EspGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+local HUD_Settings = { Enabled = true }
+local FlyVelocity = nil
+local FlyGyro = nil
 
-local function Tween(obj, props, time, style)
-    local tweenInfo = TweenInfo.new(time or 0.2, style or Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-    local tw = TweenService:Create(obj, tweenInfo, props)
-    tw:Play()
-    return tw
-end
+-- Кэш для скрытых объектов травы, чтобы возвращать их обратно
+local HiddenGrass = {}
 
-----------------------------------------------------------------
--- [ ЭКРАН ПРИВЕТСТВИЯ (INTRO - КАК В ОРИГИНАЛЕ) ] --
-----------------------------------------------------------------
-local IntroFrame = Instance.new("Frame", EspGui)
-IntroFrame.Size = UDim2.new(0, 400, 0, 250)
-IntroFrame.Position = UDim2.new(0.5, -200, 0.5, -125)
-IntroFrame.BackgroundColor3 = Theme.MainBg
-IntroFrame.BorderSizePixel = 0
-Instance.new("UICorner", IntroFrame).CornerRadius = UDim.new(0, 10)
-local IntroStroke = Instance.new("UIStroke", IntroFrame)
-IntroStroke.Color = Theme.Accent
-IntroStroke.Thickness = 2
+--------------------------------------------------------------------------------
+-- ЭЛЕМЕНТЫ МЕНЮ И КЕЙБИНДЫ
+--------------------------------------------------------------------------------
+local CombatAimGroup = Tabs.Combat:AddLeftGroupbox('Silent Aim Pro')
+CombatAimGroup:AddToggle('SilentAim', {Text = 'Enable Silent Aim', Default = true})
+CombatAimGroup:AddLabel('Silent Aim Bind'):AddKeyPicker('SilentAimBind', {Default = 'V', SyncToggleState = true, Mode = 'Toggle', Text = 'Silent Aim'})
 
-local IntroTitle = Instance.new("TextLabel", IntroFrame)
-IntroTitle.Size = UDim2.new(1, 0, 0, 40)
-IntroTitle.BackgroundTransparency = 1
-IntroTitle.Text = "🚀 LEBROTOOLS V4.1"
-IntroTitle.TextColor3 = Theme.Accent
-IntroTitle.Font = Enum.Font.GothamBlack
-IntroTitle.TextSize = 20
+CombatAimGroup:AddToggle('WallCheck', {Text = 'Wall Check', Default = true})
+CombatAimGroup:AddToggle('TeamCheck', {Text = 'Team Check', Default = true})
+CombatAimGroup:AddDropdown('HitboxPart', {Values = {'Head', 'HumanoidRootPart', 'Randomize'}, Default = 1, Multi = false, Text = 'Target Hitbox'})
 
-local IntroText = Instance.new("TextLabel", IntroFrame)
-IntroText.Size = UDim2.new(1, -40, 0, 120)
-IntroText.Position = UDim2.new(0, 20, 0, 50)
-IntroText.BackgroundTransparency = 1
-IntroText.Text = "Скрипт оптимизирован: добавлен новый фарм, VisCheck и ВХ на предметы.\n\nВзамен мы просим лишь об одном:\nПожалуйста, подпишитесь на наш канал.\nВаша поддержка мотивирует нас!"
-IntroText.TextColor3 = Theme.Text
-IntroText.Font = Enum.Font.GothamMedium
-IntroText.TextSize = 14
-IntroText.TextWrapped = true
+local CombatFovGroup = Tabs.Combat:AddLeftGroupbox('FOV Settings')
+CombatFovGroup:AddToggle('DrawFov', {Text = 'Draw FOV Circle', Default = true})
+CombatFovGroup:AddToggle('DynamicFov', {Text = 'Dynamic FOV'})
+CombatFovGroup:AddSlider('FovRadius', {Text = 'FOV Radius', Default = 150, Min = 10, Max = 1000, Rounding = 0})
 
-local IntroTimer = Instance.new("TextLabel", IntroFrame)
-IntroTimer.Size = UDim2.new(1, 0, 0, 40)
-IntroTimer.Position = UDim2.new(0, 0, 1, -50)
-IntroTimer.BackgroundTransparency = 1
-IntroTimer.Text = "Ожидание: 5 сек..."
-IntroTimer.TextColor3 = Theme.TextDark
-IntroTimer.Font = Enum.Font.GothamBold
-IntroTimer.TextSize = 14
+local MobileFlyGroup = Tabs.Combat:AddRightGroupbox('Fly (Mobile & PC)')
+MobileFlyGroup:AddToggle('FlyEnabled', {Text = 'Enable Fly', Default = false})
+MobileFlyGroup:AddLabel('Fly Bind'):AddKeyPicker('FlyBind', {Default = 'X', SyncToggleState = true, Mode = 'Toggle', Text = 'Fly'})
+MobileFlyGroup:AddSlider('FlySpeed', {Text = 'Fly Speed', Default = 50, Min = 10, Max = 250, Rounding = 0})
 
-----------------------------------------------------------------
--- [ WATERMARK ] --
-----------------------------------------------------------------
-local Watermark = Instance.new("Frame", EspGui)
-Watermark.Size = UDim2.new(0, 280, 0, 25)
-Watermark.Position = UDim2.new(0, 15, 0, 15)
-Watermark.BackgroundColor3 = Theme.TopBar
-Watermark.Visible = false 
-Instance.new("UICorner", Watermark).CornerRadius = UDim.new(0, 6)
-local WmStroke = Instance.new("UIStroke", Watermark)
-WmStroke.Color = Theme.Accent
+-- Левая секция визуалов (Игроки)
+local EspGroup = Tabs.Visuals:AddLeftGroupbox('Player ESP')
+EspGroup:AddToggle('MasterEsp', {Text = 'Master ESP Enable', Default = true})
+EspGroup:AddLabel('ESP Bind'):AddKeyPicker('EspBind', {Default = 'C', SyncToggleState = true, Mode = 'Toggle', Text = 'Master ESP'})
 
-local WmText = Instance.new("TextLabel", Watermark)
-WmText.Size = UDim2.new(1, 0, 1, 0)
-WmText.BackgroundTransparency = 1
-WmText.Text = " 💧 LebroTools | Loading... "
-WmText.TextColor3 = Theme.Text
-WmText.Font = Enum.Font.GothamBold
-WmText.TextSize = 12
+EspGroup:AddToggle('EspBox', {Text = 'Show Box', Default = true})
+EspGroup:AddToggle('EspName', {Text = 'Show Name', Default = true})
+EspGroup:AddToggle('EspDist', {Text = 'Show Distance', Default = true})
+EspGroup:AddToggle('EspHealth', {Text = 'Show Health Bar', Default = true})
+EspGroup:AddToggle('EspHighlight', {Text = 'Enable Highlight (Chams)', Default = false})
 
-task.spawn(function()
-    local frameCount = 0
-    local lastUpdate = tick()
-    RunService.RenderStepped:Connect(function() frameCount = frameCount + 1 end)
-    while task.wait(0.5) do
-        local fps = math.floor(frameCount / (tick() - lastUpdate))
-        frameCount = 0
-        lastUpdate = tick()
-        WmText.Text = string.format(" 💧 LebroTools | %s | FPS: %d", LocalPlayer.Name, fps)
-        Watermark.Size = UDim2.new(0, WmText.TextBounds.X + 20, 0, 25)
-    end
-end)
+-- Правая верхняя секция визуалов (Таргет ХУД)
+local TargetBox = Tabs.Visuals:AddRightGroupbox('Target HUD Settings')
+TargetBox:AddToggle('TargetHUD_Enabled', {
+    Text = 'Enable Target HUD',
+    Default = true,
+    Callback = function(Value) HUD_Settings.Enabled = Value end
+})
 
-----------------------------------------------------------------
--- [ АНИМИРОВАННЫЕ ЭЛЕМЕНТЫ FOV И РАДАР ] --
-----------------------------------------------------------------
-local FOV_State = { CurrentRadius = Toggles.FovRadius, CurrentColor = Toggles.FovColor, CurrentThickness = 1 }
-local UI_Elements = { 
-    FovCircle = Drawing.new("Circle"), TargetDot = Drawing.new("Circle"),
-    CrossH = Drawing.new("Line"), CrossV = Drawing.new("Line")
-}
-UI_Elements.FovCircle.Thickness = 1; UI_Elements.FovCircle.NumSides = 64; UI_Elements.FovCircle.Filled = false; UI_Elements.FovCircle.Visible = false
-UI_Elements.TargetDot.Radius = 4; UI_Elements.TargetDot.Thickness = 1; UI_Elements.TargetDot.Color = Theme.Accent; UI_Elements.TargetDot.Filled = true; UI_Elements.TargetDot.Visible = false
-UI_Elements.CrossH.Thickness = 1; UI_Elements.CrossH.Color = Color3.new(0,1,0); UI_Elements.CrossH.Visible = false
-UI_Elements.CrossV.Thickness = 1; UI_Elements.CrossV.Color = Color3.new(0,1,0); UI_Elements.CrossV.Visible = false
-
-local CounterFrame = Instance.new("Frame", EspGui)
-CounterFrame.Size = UDim2.new(0, 260, 0, 35); CounterFrame.Position = UDim2.new(0.5, -130, 0, -50)
-CounterFrame.BackgroundColor3 = Theme.MainBg; CounterFrame.BorderSizePixel = 0; CounterFrame.Visible = false
-Instance.new("UICorner", CounterFrame).CornerRadius = UDim.new(0, 8)
-local CounterStroke = Instance.new("UIStroke", CounterFrame); CounterStroke.Color = Theme.Accent; CounterStroke.Thickness = 1.5
-local CounterLabel = Instance.new("TextLabel", CounterFrame)
-CounterLabel.Size = UDim2.new(1, 0, 1, 0); CounterLabel.BackgroundTransparency = 1
-CounterLabel.Text = "📡 РАДАР: 0 ИГРОКОВ | 0 БОТОВ"; CounterLabel.TextColor3 = Theme.Text; CounterLabel.Font = Enum.Font.GothamBold; CounterLabel.TextSize = 13
-
-----------------------------------------------------------------
--- [ UI ФРЕЙМВОРК МЕНЮ ] --
-----------------------------------------------------------------
-local Main = Instance.new("Frame", EspGui)
-Main.Size = UDim2.new(0, 720, 0, 460) 
-Main.Position = UDim2.new(0.5, -360, 0.5, -230)
-Main.BackgroundColor3 = Theme.MainBg
-Main.BorderSizePixel = 0
-Main.ClipsDescendants = true
-Main.Visible = false
-Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 10)
-local MainStroke = Instance.new("UIStroke", Main)
-MainStroke.Color = Theme.Border
-
-local TopBar = Instance.new("Frame", Main)
-TopBar.Size = UDim2.new(1, 0, 0, 45) 
-TopBar.BackgroundColor3 = Theme.TopBar
-TopBar.BorderSizePixel = 0
-local TopBarLine = Instance.new("Frame", TopBar)
-TopBarLine.Size = UDim2.new(1, 0, 0, 2); TopBarLine.Position = UDim2.new(0, 0, 1, -2)
-TopBarLine.BackgroundColor3 = Theme.Accent; TopBarLine.BorderSizePixel = 0
-
-task.spawn(function()
-    local hue = 0
-    while task.wait() do
-        hue = hue + 0.005
-        if hue >= 1 then hue = 0 end
-        TopBarLine.BackgroundColor3 = Color3.fromHSV(hue, 0.8, 1)
-        if Toggles.RainbowSky then Lighting.Ambient = Color3.fromHSV(hue, 0.5, 1) end
-    end
-end)
-
-local Title = Instance.new("TextLabel", TopBar)
-Title.Size = UDim2.new(0, 160, 1, 0); Title.Position = UDim2.new(0, 20, 0, 0)
-Title.Text = "LEBROTOOLS"; Title.TextColor3 = Theme.Text
-Title.Font = Enum.Font.GothamBlack; Title.TextSize = 19; Title.TextXAlignment = Enum.TextXAlignment.Left; Title.BackgroundTransparency = 1
-
-local TabContainer = Instance.new("Frame", TopBar)
-TabContainer.Size = UDim2.new(1, -190, 1, 0); TabContainer.Position = UDim2.new(0, 190, 0, 0); TabContainer.BackgroundTransparency = 1
-local TabList = Instance.new("UIListLayout", TabContainer)
-TabList.FillDirection = Enum.FillDirection.Horizontal; TabList.Padding = UDim.new(0, 8); TabList.VerticalAlignment = Enum.VerticalAlignment.Center
-
-local ContentArea = Instance.new("Frame", Main)
-ContentArea.Size = UDim2.new(1, 0, 1, -47); ContentArea.Position = UDim2.new(0, 0, 0, 47); ContentArea.BackgroundTransparency = 1
-
-local ToggleBtn = Instance.new("TextButton", EspGui)
-ToggleBtn.Size = UDim2.new(0, 50, 0, 50); ToggleBtn.Position = UDim2.new(0, 15, 0, 50) 
-ToggleBtn.BackgroundColor3 = Theme.MainBg; ToggleBtn.Text = "LT"; ToggleBtn.TextColor3 = Theme.Accent
-ToggleBtn.Font = Enum.Font.GothamBlack; ToggleBtn.TextSize = 20
-ToggleBtn.Visible = false
-Instance.new("UICorner", ToggleBtn).CornerRadius = UDim.new(0, 8)
-local ToggleBtnStroke = Instance.new("UIStroke", ToggleBtn)
-ToggleBtnStroke.Color = Theme.Accent
-
-ToggleBtn.MouseButton1Click:Connect(function() Main.Visible = not Main.Visible end)
-
-local Tabs, TabBtns = {}, {}
-local function SelectTab(name)
-    for n, f in pairs(Tabs) do f.Visible = (n == name) end
-    for n, b in pairs(TabBtns) do
-        local isSelected = (n == name)
-        Tween(b, {TextColor3 = isSelected and Theme.Accent or Theme.TextDark}, 0.2)
-    end
-end
-
-local function CreateTab(name)
-    local btn = Instance.new("TextButton", TabContainer)
-    btn.Size = UDim2.new(0, 0, 0, 32); btn.AutomaticSize = Enum.AutomaticSize.X; btn.BackgroundTransparency = 1
-    btn.Text = name; btn.Font = Enum.Font.GothamBold; btn.TextSize = 13; btn.TextColor3 = Theme.TextDark
-    local pad = Instance.new("UIPadding", btn); pad.PaddingLeft = UDim.new(0, 12); pad.PaddingRight = UDim.new(0, 12)
-    TabBtns[name] = btn
-
-    local page = Instance.new("ScrollingFrame", ContentArea)
-    page.Size = UDim2.new(1, -20, 1, -20); page.Position = UDim2.new(0, 10, 0, 10); page.BackgroundTransparency = 1; page.Visible = false
-    page.ScrollBarThickness = 3; page.ScrollBarImageColor3 = Theme.Accent; page.BorderSizePixel = 0
-    
-    local leftCol = Instance.new("Frame", page); leftCol.Size = UDim2.new(0.485, 0, 1, 0); leftCol.BackgroundTransparency = 1
-    local rightCol = Instance.new("Frame", page); rightCol.Size = UDim2.new(0.485, 0, 1, 0); rightCol.Position = UDim2.new(0.515, 0, 0, 0); rightCol.BackgroundTransparency = 1
-    
-    local lLayout = Instance.new("UIListLayout", leftCol); lLayout.Padding = UDim.new(0, 12); lLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    local rLayout = Instance.new("UIListLayout", rightCol); rLayout.Padding = UDim.new(0, 12); rLayout.SortOrder = Enum.SortOrder.LayoutOrder
-
-    local function updateSize()
-        local h = math.max(lLayout.AbsoluteContentSize.Y, rLayout.AbsoluteContentSize.Y)
-        page.CanvasSize = UDim2.new(0, 0, 0, h + 25)
-    end
-    lLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateSize)
-    rLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateSize)
-
-    Tabs[name] = page
-    btn.MouseButton1Click:Connect(function() SelectTab(name) end)
-    return leftCol, rightCol
-end
-
-local function CreateSection(parent, title)
-    local sec = Instance.new("Frame", parent)
-    sec.Size = UDim2.new(1, 0, 0, 0); sec.AutomaticSize = Enum.AutomaticSize.Y; sec.BackgroundColor3 = Theme.SectionBg
-    Instance.new("UICorner", sec).CornerRadius = UDim.new(0, 8)
-    local secStroke = Instance.new("UIStroke", sec); secStroke.Color = Theme.Border
-    local lbl = Instance.new("TextLabel", sec)
-    lbl.Size = UDim2.new(1, -20, 0, 35); lbl.Position = UDim2.new(0, 10, 0, 0); lbl.BackgroundTransparency = 1
-    lbl.Text = title:upper(); lbl.TextColor3 = Theme.Accent; lbl.Font = Enum.Font.GothamBold; lbl.TextSize = 11; lbl.TextXAlignment = Enum.TextXAlignment.Left
-    local container = Instance.new("Frame", sec)
-    container.Size = UDim2.new(1, -20, 0, 0); container.Position = UDim2.new(0, 10, 0, 35); container.AutomaticSize = Enum.AutomaticSize.Y; container.BackgroundTransparency = 1
-    local layout = Instance.new("UIListLayout", container); layout.Padding = UDim.new(0, 10); layout.SortOrder = Enum.SortOrder.LayoutOrder
-    local pad = Instance.new("UIPadding", container); pad.PaddingBottom = UDim.new(0, 12)
-    return container
-end
-
-local function AddCheckbox(parent, text, key, callback)
-    local f = Instance.new("Frame", parent)
-    f.Size = UDim2.new(1, 0, 0, 26); f.BackgroundTransparency = 1
-    local btn = Instance.new("TextButton", f)
-    btn.Size = UDim2.new(0, 22, 0, 22); btn.BackgroundColor3 = Theme.MainBg; btn.BorderSizePixel = 0; btn.Text = ""; btn.Position = UDim2.new(0, 0, 0.5, -11)
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
-    local stroke = Instance.new("UIStroke", btn); stroke.Color = Theme.Border
-    local check = Instance.new("Frame", btn)
-    check.Size = UDim2.new(0, 12, 0, 12); check.Position = UDim2.new(0.5, -6, 0.5, -6); check.BackgroundColor3 = Theme.Accent; check.BackgroundTransparency = Toggles[key] and 0 or 1
-    Instance.new("UICorner", check).CornerRadius = UDim.new(0, 3)
-    local lbl = Instance.new("TextLabel", f)
-    lbl.Size = UDim2.new(1, -34, 1, 0); lbl.Position = UDim2.new(0, 34, 0, 0); lbl.BackgroundTransparency = 1
-    lbl.Text = text; lbl.TextColor3 = Theme.TextDark; lbl.Font = Enum.Font.GothamMedium; lbl.TextSize = 13; lbl.TextXAlignment = Enum.TextXAlignment.Left
-
-    local function update()
-        Toggles[key] = not Toggles[key]
-        Tween(check, {BackgroundTransparency = Toggles[key] and 0 or 1}, 0.15)
-        Tween(stroke, {Color = Toggles[key] and Theme.Accent or Theme.Border}, 0.15)
-        Tween(lbl, {TextColor3 = Toggles[key] and Theme.Text or Theme.TextDark}, 0.15)
-        if callback then callback(Toggles[key]) end
-    end
-    btn.MouseButton1Click:Connect(update)
-    if Toggles[key] then stroke.Color = Theme.Accent; lbl.TextColor3 = Theme.Text end
-end
-
-local function AddSlider(parent, text, min, max, default, key, isFloat, callback)
-    local f = Instance.new("Frame", parent)
-    f.Size = UDim2.new(1, 0, 0, 42); f.BackgroundTransparency = 1
-    local lbl = Instance.new("TextLabel", f)
-    lbl.Size = UDim2.new(1, 0, 0, 18); lbl.BackgroundTransparency = 1
-    lbl.Text = text; lbl.TextColor3 = Theme.Text; lbl.Font = Enum.Font.GothamMedium; lbl.TextSize = 13; lbl.TextXAlignment = Enum.TextXAlignment.Left
-    local valText = Instance.new("TextLabel", f)
-    valText.Size = UDim2.new(0, 60, 0, 18); valText.Position = UDim2.new(1, -60, 0, 0); valText.BackgroundTransparency = 1
-    valText.Text = isFloat and string.format("%.2f", default) or tostring(default)
-    valText.TextColor3 = Theme.Accent; valText.Font = Enum.Font.GothamBold; valText.TextSize = 13; valText.TextXAlignment = Enum.TextXAlignment.Right
-
-    local barBg = Instance.new("Frame", f)
-    barBg.Size = UDim2.new(1, -14, 0, 6); barBg.Position = UDim2.new(0, 7, 0, 26); barBg.BackgroundColor3 = Theme.MainBg; barBg.BorderSizePixel = 0
-    Instance.new("UICorner", barBg).CornerRadius = UDim.new(1, 0)
-    local barFill = Instance.new("Frame", barBg)
-    barFill.Size = UDim2.new((default-min)/(max-min), 0, 1, 0); barFill.BackgroundColor3 = Theme.Accent; barFill.BorderSizePixel = 0
-    Instance.new("UICorner", barFill).CornerRadius = UDim.new(1, 0)
-    local dragDot = Instance.new("Frame", barFill)
-    dragDot.Size = UDim2.new(0, 14, 0, 14); dragDot.Position = UDim2.new(1, -7, 0.5, -7); dragDot.BackgroundColor3 = Color3.fromRGB(245, 245, 245)
-    Instance.new("UICorner", dragDot).CornerRadius = UDim.new(1, 0)
-
-    local btn = Instance.new("TextButton", barBg)
-    btn.Size = UDim2.new(1, 30, 1, 24); btn.Position = UDim2.new(0, -15, 0, -12); btn.BackgroundTransparency = 1; btn.Text = ""
-
-    local dragging = false
-    btn.MouseButton1Down:Connect(function() dragging = true; Tween(dragDot, {Size = UDim2.new(0, 18, 0, 18), Position = UDim2.new(1, -9, 0.5, -9)}, 0.1) end)
-    UserInputService.InputEnded:Connect(function(input) 
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then 
-            dragging = false; Tween(dragDot, {Size = UDim2.new(0, 14, 0, 14), Position = UDim2.new(1, -7, 0.5, -7)}, 0.1)
-        end 
-    end)
-    
-    local function updateValue(input)
-        local pct = math.clamp((input.Position.X - barBg.AbsolutePosition.X) / barBg.AbsoluteSize.X, 0, 1)
-        Tween(barFill, {Size = UDim2.new(pct, 0, 1, 0)}, 0.05)
-        local val = min + (max - min) * pct
-        if not isFloat then val = math.floor(val) end
-        valText.Text = isFloat and string.format("%.2f", val) or tostring(val)
-        Toggles[key] = val
-        if callback then callback(val) end
-    end
-
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then updateValue(input) end
-    end)
-end
-
-----------------------------------------------------------------
--- [ ПОСТРОЕНИЕ ВКЛАДОК ] --
-----------------------------------------------------------------
-local lAim, rAim = CreateTab("Aimbot")
-local lWeap, rWeap = CreateTab("Weapon")
-local lEsp, rEsp = CreateTab("ESP")
-local lPlr, rPlr = CreateTab("Player")
-local lWld, rWld = CreateTab("World")
-
--- Вкладка: Aimbot
-local secAimMain = CreateSection(lAim, "Основной Aimbot")
-AddCheckbox(secAimMain, "Silent Aim", "SilentAim")
-AddCheckbox(secAimMain, "Camera Aimbot", "CamAimbot")
-AddCheckbox(secAimMain, "TriggerBot", "TriggerBot")
-AddSlider(secAimMain, "Плавность аима", 1, 100, 20, "AimSmooth")
-
-local secFov = CreateSection(lAim, "Настройки FOV")
-AddCheckbox(secFov, "Показать FOV", "DrawFov")
-AddCheckbox(secFov, "Динамический FOV", "DynamicFov")
-AddSlider(secFov, "Радиус FOV", 50, 1000, 150, "FovRadius")
-
-local secHitbox = CreateSection(rAim, "Увеличение голов (Hitbox)")
-AddCheckbox(secHitbox, "Включить Expand Hitboxes", "ExpandHitboxes")
-AddSlider(secHitbox, "Размер хитбокса", 2, 20, 5, "HitboxSize", false)
-
--- Вкладка: Weapon
-local secWeapMods = CreateSection(lWeap, "Модификации Оружия")
-AddCheckbox(secWeapMods, "Без отдачи (No Recoil)", "NoRecoil")
-AddCheckbox(secWeapMods, "Без разброса (No Spread)", "NoSpread")
-AddCheckbox(secWeapMods, "Макс. скорость пули", "MaxVel")
-
-local secMiscFarm = CreateSection(rWeap, "Оптимизированный Фарм")
-AddCheckbox(secMiscFarm, "Авто-удары по руде", "AutoOre")
-AddCheckbox(secMiscFarm, "Авто-удары по дереву", "AutoTree")
-
--- Вкладка: ESP
-local secEspMain = CreateSection(lEsp, "Визуальные Функции")
-AddCheckbox(secEspMain, "ESP Игроки", "PlayerEsp")
-AddCheckbox(secEspMain, "ESP Боты", "BotEsp")
-AddCheckbox(secEspMain, "2D Боксы", "EspBox")
-AddCheckbox(secEspMain, "Скелеты", "EspSkeleton")
-AddCheckbox(secEspMain, "Линии (Tracers)", "EspLines")
-AddCheckbox(secEspMain, "VisCheck (Черный если за стеной)", "VisCheck")
-
-local secDisplay = CreateSection(rEsp, "Отображение Информации")
-AddCheckbox(secDisplay, "Имена", "EspName")
-AddCheckbox(secDisplay, "Дистанция", "EspDistance")
-AddCheckbox(secDisplay, "Здоровье", "EspHealth")
-AddCheckbox(secDisplay, "Иконка оружия", "EspWeapon")
-AddCheckbox(secDisplay, "Кастомный прицел", "Crosshair")
-
--- Вкладка: Player
-local secPlrMove = CreateSection(lPlr, "Движение Персонажа")
-AddCheckbox(secPlrMove, "Noclip (Ghost Mode)", "Noclip", function(val)
-    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
-    if val and hrp and hum then
-        Freecam.SavedCFrame = hrp.CFrame; hrp.Anchored = true 
-        Freecam.CamPart = Instance.new("Part"); Freecam.CamPart.Size = Vector3.new(1,1,1); Freecam.CamPart.Transparency = 1; Freecam.CamPart.CanCollide = false; Freecam.CamPart.Anchored = true; Freecam.CamPart.CFrame = hrp.CFrame; Freecam.CamPart.Parent = Workspace
-        Camera.CameraSubject = Freecam.CamPart
-        Freecam.RenderConn = RunService.RenderStepped:Connect(function(dt)
-            if not Freecam.CamPart then return end
-            local moveDir = Vector3.new()
-            if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + Camera.CFrame.LookVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - Camera.CFrame.LookVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - Camera.CFrame.RightVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + Camera.CFrame.RightVector end
-            if moveDir.Magnitude > 0 then moveDir = moveDir.Unit end
-            Freecam.CamPart.CFrame = Freecam.CamPart.CFrame + (moveDir * Toggles.GhostSpeed * dt)
-        end)
-    else
-        if Freecam.RenderConn then Freecam.RenderConn:Disconnect() end
-        if Freecam.CamPart then Freecam.CamPart:Destroy() end
-        if hrp and Freecam.SavedCFrame then hrp.CFrame = Freecam.SavedCFrame; hrp.Anchored = false end
-        if hum then Camera.CameraSubject = hum end
-    end
-end)
-AddSlider(secPlrMove, "Скорость бега", 16, 250, 16, "WalkSpeed")
-AddSlider(secPlrMove, "Сила прыжка", 50, 350, 50, "JumpPower")
-
-local secPlrHvh = CreateSection(rPlr, "HvH & Разное (Новое)")
-AddCheckbox(secPlrHvh, "Крутилка (Spinbot)", "Spinbot")
-AddSlider(secPlrHvh, "Скорость крутилки", 10, 100, 50, "SpinSpeed", false)
-AddCheckbox(secPlrHvh, "Распрыжка (B-Hop)", "BunnyHop")
-AddCheckbox(secPlrHvh, "Рывок на 'Q' (Dash)", "DashEnabled") 
-AddCheckbox(secPlrHvh, "Авто-Хил (<50% HP)", "AutoHeal") 
-
--- Вкладка: World
-local secWorldEnv = CreateSection(lWld, "Окружение мира")
-AddCheckbox(secWorldEnv, "Fullbright", "Fullbright")
-AddCheckbox(secWorldEnv, "Радужное небо", "RainbowSky")
-AddCheckbox(secWorldEnv, "Убрать траву", "NoGrass")
-
-local secWorldChams = CreateSection(rWld, "ВХ на Предметы")
-AddCheckbox(secWorldChams, "Hemp (Конопля) ESP", "HempEsp")
-AddCheckbox(secWorldChams, "Crates (Ящики) ESP", "CrateEsp")
-AddCheckbox(secWorldChams, "Шкафы (TC) ESP", "TcEsp")
-AddCheckbox(secWorldChams, "Рюкзаки ESP", "BpEsp")
-
-SelectTab("Aimbot")
-
-----------------------------------------------------------------
--- [ ОПТИМИЗИРОВАННЫЙ КЭШ ФАРМА И HITBOX EXPANDER ] --
-----------------------------------------------------------------
-task.spawn(function()
-    while task.wait(2) do
-        -- Кэш фарма
-        if Toggles.AutoOre or Toggles.AutoTree then
-            local o, t = {}, {}
-            for _, obj in ipairs(Workspace:GetDescendants()) do
-                if obj:IsA("BasePart") then
-                    if obj.Name == "star" then table.insert(o, obj)
-                    elseif obj.Name == "cross" then table.insert(t, obj) end
-                end
-            end
-            Cache.FarmNodes.Ores = o
-            Cache.FarmNodes.Trees = t
-        end
-        
-        -- Hitbox Expander (увеличение голов)
-        for _, p in pairs(Players:GetPlayers()) do
-            if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Head") then
-                local head = p.Character.Head
-                if Toggles.ExpandHitboxes then
-                    head.Size = Vector3.new(Toggles.HitboxSize, Toggles.HitboxSize, Toggles.HitboxSize)
-                    head.Transparency = 0.6
-                    head.CanCollide = false
-                else
-                    head.Size = Vector3.new(1.2, 1.2, 1.2) -- Возврат к стандарту
-                    head.Transparency = 0
-                end
-            end
-        end
-    end
-end)
-
-----------------------------------------------------------------
--- [ HOOKS: ОРУЖИЕ И ФАРМ ] --
-----------------------------------------------------------------
-task.spawn(function()
-    while task.wait(2) do
+-- Правая нижняя секция визуалов (Мир, Небо, Трава, Фуллбрайт)
+local WorldBox = Tabs.Visuals:AddRightGroupbox('World Visuals')
+WorldBox:AddToggle('CustomSkyToggle', {
+    Text = 'Custom Sky',
+    Default = false,
+    Callback = function(Value)
         pcall(function()
-            for _, v in pairs(getgc(true)) do
-                if type(v) == "table" then
-                    if rawget(v, "BaseBulletVelocity") and Toggles.MaxVel then v.BaseBulletVelocity = 999999; v.Velocity = 999999 end
-                    if rawget(v, "BulletGravity") and Toggles.ZeroGrav then v.BulletGravity = 0; v.Gravity = 0 end
-                    if rawget(v, "TotalAttachmentStats") then
-                        local s = v.TotalAttachmentStats
-                        if Toggles.NoSpread then s.SpreadMult = 0; s.PelletSpread = 0 end
-                        if Toggles.NoRecoil then s.RecoilMult = 0; s.KickMult = 0 end
-                    end
-                    
-                    if rawget(v, "getfireDirection") and not Cache.ToolModHooked then
-                        local oldDir = v.getfireDirection
-                        v.getfireDirection = function(self, origin, raycast)
-                            if Toggles.SilentAim and Cache.SilentTarget then return (Cache.SilentTarget.Position - origin).Unit end
-                            return oldDir(self, origin, raycast)
-                        end
-                        if rawget(v, "hit") then
-                            local oldHit = v.hit
-                            v.hit = function(self, inst, pos)
-                                local tI, tP = inst, pos
-                                if Toggles.AutoOre or Toggles.AutoTree then
-                                    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                                    if hrp then
-                                        local mp = hrp.Position; local cp, md = nil, 25
-                                        local nodesToSearch = Toggles.AutoOre and Cache.FarmNodes.Ores or Cache.FarmNodes.Trees
-                                        for _, obj in ipairs(nodesToSearch) do
-                                            if obj and obj.Parent then
-                                                local d = (mp - obj.Position).Magnitude
-                                                if d < md then cp = obj; md = d end
-                                            end
-                                        end
-                                        if cp then tI = cp; tP = cp.Position end
-                                    end
-                                end
-                                return oldHit(self, tI, tP)
+            local oldSky = Lighting:FindFirstChild("NeverlorSky")
+            if oldSky then oldSky:Destroy() end
+            
+            if Value then
+                local newSky = Instance.new("Sky")
+                newSky.Name = "NeverlorSky"
+                local skyId = "rbxassetid://82536953791252"
+                
+                newSky.SkyboxBk = skyId
+                newSky.SkyboxDn = skyId
+                newSky.SkyboxFt = skyId
+                newSky.SkyboxLf = skyId
+                newSky.SkyboxRt = skyId
+                newSky.SkyboxUp = skyId
+                newSky.Parent = Lighting
+            end
+        end)
+    end
+})
+
+-- Функция Fullbright
+WorldBox:AddToggle('FullbrightToggle', {
+    Text = 'Fullbright',
+    Default = false
+})
+
+-- Улучшенная функция: No Grass (Удаление травы)
+WorldBox:AddToggle('NoGrassToggle', {
+    Text = 'No Grass',
+    Default = false,
+    Callback = function(Value)
+        pcall(function()
+            -- 1. Выключаем встроенный Terrain Декор
+            local terrain = Workspace:FindFirstChildOfClass("Terrain")
+            if terrain then
+                terrain.Decoration = not Value
+            end
+            
+            -- 2. Поиск и скрытие кастомных парт-моделей травы по всей карте
+            if Value then
+                for _, obj in ipairs(Workspace:GetDescendants()) do
+                    if obj:IsA("BasePart") or obj:IsA("MeshPart") then
+                        local name = obj.Name:lower()
+                        -- Фильтр по названию и материалу травы/фолиажа
+                        if name:find("grass") or name:find("foliage") or name:find("bush") or obj.Material == Enum.Material.Grass then
+                            if obj.Transparency ~= 1 then
+                                HiddenGrass[obj] = obj.Transparency -- запоминаем исходную видимость
+                                obj.Transparency = 1
+                                obj.CanCollide = false
                             end
                         end
-                        Cache.ToolModHooked = true
                     end
                 end
+            else
+                -- Возвращаем обратно, если выключили тумблер
+                for obj, oldTrans in pairs(HiddenGrass) do
+                    if obj and obj.Parent then
+                        obj.Transparency = oldTrans
+                    end
+                end
+                table.clear(HiddenGrass)
             end
         end)
     end
-end)
+})
 
-----------------------------------------------------------------
--- [ WORLD ESP (ПРЕДМЕТЫ) ] --
-----------------------------------------------------------------
-local function CreateWorldText()
-    local t = Drawing.new("Text")
-    t.Size = 13; t.Center = true; t.Outline = true; t.Visible = false; t.ZIndex = 2
-    return t
-end
-
-task.spawn(function()
-    while task.wait(1) do
-        for obj, txt in pairs(Cache.WorldEspItems) do if not obj or not obj.Parent then txt:Remove(); Cache.WorldEspItems[obj] = nil end end
-        if Toggles.HempEsp or Toggles.CrateEsp or Toggles.TcEsp or Toggles.BpEsp then
-            for _, obj in ipairs(Workspace:GetDescendants()) do
-                if obj:IsA("Model") or obj:IsA("BasePart") then
-                    local name = obj.Name:lower()
-                    local shouldDraw, color, title = false, Color3.new(1,1,1), ""
-                    
-                    if Toggles.HempEsp and name:find("hemp") then shouldDraw = true; color = Color3.fromRGB(50, 200, 50); title = "Hemp" end
-                    if Toggles.CrateEsp and (name:find("crate") or name:find("loot")) then shouldDraw = true; color = Color3.fromRGB(200, 200, 50); title = "Crate" end
-                    if Toggles.TcEsp and name:find("cupboard") then shouldDraw = true; color = Color3.fromRGB(200, 50, 50); title = "TC" end
-                    if Toggles.BpEsp and name:find("backpack") then shouldDraw = true; color = Color3.fromRGB(255, 100, 200); title = "Backpack" end
-                    
-                    if shouldDraw and not Cache.WorldEspItems[obj] then
-                        local txt = CreateWorldText(); txt.Color = color; txt.Text = title
-                        Cache.WorldEspItems[obj] = txt
-                    end
-                end
-            end
-        end
-    end
-end)
-
-----------------------------------------------------------------
--- [ ФУНКЦИИ: АВТО-ХИЛ, DASH, B-HOP ] --
-----------------------------------------------------------------
-task.spawn(function()
-    while task.wait(0.5) do
-        if Toggles.AutoHeal then
-            local char = LocalPlayer.Character
-            local hum = char and char:FindFirstChild("Humanoid")
-            if hum and hum.Health > 0 and hum.Health < (hum.MaxHealth * 0.5) then
-                local backpack = LocalPlayer:FindFirstChild("Backpack")
-                if backpack then
-                    for _, item in pairs(backpack:GetChildren()) do
-                        if item:IsA("Tool") and (item.Name:lower():find("syringe") or item.Name:lower():find("bandage")) then
-                            hum:EquipTool(item)
-                            task.wait(0.2)
-                            if mouse1click then mouse1click() end
-                            break
-                        end
-                    end
-                end
-            end
-        end
-    end
-end)
-
-task.spawn(function()
-    while task.wait() do
-        if Toggles.BunnyHop and UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-            local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
-            if hum and hum:GetState() ~= Enum.HumanoidStateType.Jumping and hum:GetState() ~= Enum.HumanoidStateType.Freefall then
-                hum:ChangeState(Enum.HumanoidStateType.Jumping)
-            end
-        end
-    end
-end)
-
-UserInputService.InputBegan:Connect(function(input, gp)
-    if gp then return end
-    if Toggles.DashEnabled and input.KeyCode == Enum.KeyCode.Q then
-        local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-        if hrp then hrp.CFrame = hrp.CFrame * CFrame.new(0, 0, -20) end
-    end
-end)
-
-----------------------------------------------------------------
--- [ ESP, SPINBOT И РЕНДЕР ИГРОКОВ (VISCHECK) ] --
-----------------------------------------------------------------
-local function CreateVisualsStruct()
-    local obj = {
-        Box = Drawing.new("Square"), BoxOut = Drawing.new("Square"),
-        Name = Drawing.new("Text"), NameBg = Drawing.new("Square"),
-        Dist = Drawing.new("Text"), 
-        Health = Drawing.new("Text"), HealthBg = Drawing.new("Square"),
-        Line = Drawing.new("Line"), Skeleton = {}
-    }
-    obj.Box.Thickness = 1; obj.Box.Transparency = 1; obj.Box.Filled = false; obj.Box.ZIndex = 2
-    obj.BoxOut.Thickness = 3; obj.BoxOut.Color = Color3.new(0,0,0); obj.BoxOut.Transparency = 0.5; obj.BoxOut.Filled = false; obj.BoxOut.ZIndex = 1
-    
-    obj.Name.Outline = true; obj.Name.Center = true; obj.Name.Font = 2; obj.Name.ZIndex = 3
-    obj.NameBg.Filled = true; obj.NameBg.Color = Color3.new(0,0,0); obj.NameBg.Transparency = 0.7; obj.NameBg.Thickness = 0; obj.NameBg.ZIndex = 1
-    
-    obj.Dist.Outline = true; obj.Dist.Center = true; obj.Dist.Color = Theme.TextDark; obj.Dist.Font = 2; obj.Dist.ZIndex = 3
-    
-    obj.Health.Outline = true; obj.Health.Center = true; obj.Health.Font = 2; obj.Health.ZIndex = 3
-    obj.HealthBg.Filled = true; obj.HealthBg.Color = Color3.new(0,0,0); obj.HealthBg.Transparency = 0.7; obj.HealthBg.Thickness = 0; obj.HealthBg.ZIndex = 1
-
-    obj.Line.Thickness = 1; obj.Line.ZIndex = 2
-    for i = 1, 15 do local l = Drawing.new("Line"); l.Thickness = 1; l.ZIndex = 2; table.insert(obj.Skeleton, l) end
-    return obj
-end
-
-local function CleanStruct(struct)
-    if not struct then return end
-    for _, v in pairs(struct) do
-        if type(v) == "table" then for _, l in pairs(v) do l:Remove() end
-        elseif typeof(v) == "Instance" then v:Destroy() else v:Remove() end 
-    end
-end
-
-for _, p in pairs(Players:GetPlayers()) do if p ~= LocalPlayer then Cache.PlayerVisuals[p] = CreateVisualsStruct() end end
-Players.PlayerAdded:Connect(function(p) Cache.PlayerVisuals[p] = CreateVisualsStruct() end)
-Players.PlayerRemoving:Connect(function(p) CleanStruct(Cache.PlayerVisuals[p]); Cache.PlayerVisuals[p] = nil end)
-
-local function GetBots()
-    local bots = {}
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("Model") and obj:FindFirstChild("Humanoid") and obj:FindFirstChild("HumanoidRootPart") then
-            if not Players:GetPlayerFromCharacter(obj) and obj ~= LocalPlayer.Character then table.insert(bots, obj) end
-        end
-    end
-    return bots
-end
-
-        task.spawn(function()
-    while task.wait(2) do
-        pcall(function() if Workspace:FindFirstChild("Terrain") then Workspace.Terrain.Decoration = not Toggles.NoGrass end end)
-        
-        if Toggles.BotEsp then
-            local cb = GetBots(); local map = {}
-            for _, b in ipairs(cb) do
-                map[b] = true
-                if not Cache.BotVisuals[b] then Cache.BotVisuals[b] = CreateVisualsStruct() end
-            end
-            for b, v in pairs(Cache.BotVisuals) do if not map[b] or not b.Parent then CleanStruct(v); Cache.BotVisuals[b] = nil end end
-        end
-    end
-end)
-
-RunService.RenderStepped:Connect(function()
-    local center = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
-    
-    -- SPINBOT
-    if Toggles.Spinbot and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-        LocalPlayer.Character.HumanoidRootPart.CFrame = LocalPlayer.Character.HumanoidRootPart.CFrame * CFrame.Angles(0, math.rad(Toggles.SpinSpeed), 0)
-    end
-    
-    -- Рендер Crosshair
-    if Toggles.Crosshair then
-        UI_Elements.CrossH.Visible = true; UI_Elements.CrossV.Visible = true
-        UI_Elements.CrossH.From = Vector2.new(center.X - 10, center.Y); UI_Elements.CrossH.To = Vector2.new(center.X + 10, center.Y)
-        UI_Elements.CrossV.From = Vector2.new(center.X, center.Y - 10); UI_Elements.CrossV.To = Vector2.new(center.X, center.Y + 10)
-    else
-        UI_Elements.CrossH.Visible = false; UI_Elements.CrossV.Visible = false
-    end
-    
-    UI_Elements.FovCircle.Position = center; UI_Elements.FovCircle.Radius = Toggles.FovRadius
-    UI_Elements.FovCircle.Color = Toggles.FovColor; UI_Elements.FovCircle.Visible = Toggles.DrawFov
-    
-    local target, t_dist = nil, Toggles.FovRadius
-    local countPlr, countBot = 0, 0
-
-    local function ProcessESP(entity, esp, isBot)
-        local isVisible = false
-        if entity and entity:FindFirstChild("HumanoidRootPart") and entity:FindFirstChild("Humanoid") and entity.Humanoid.Health > 0 then
-            local hrp = entity.HumanoidRootPart
-            local dist = (Camera.CFrame.Position - hrp.Position).Magnitude
-            local pos, on = Camera:WorldToViewportPoint(hrp.Position)
-            
-            if on then
-                local aimPartObj = entity:FindFirstChild("Head") or hrp
-                if aimPartObj and not isBot then
-                    local partPos = Camera:WorldToViewportPoint(aimPartObj.Position)
-                    local m = (Vector2.new(partPos.X, partPos.Y) - center).Magnitude
-                    if m < t_dist then t_dist = m; target = aimPartObj end
-                end
-
-                if (isBot and Toggles.BotEsp or not isBot and Toggles.PlayerEsp) and dist <= Toggles.EspMaxDist then
-                    
-                    -- VISCHECK
-                    local passVis = true
-                    local ray = Ray.new(Camera.CFrame.Position, (hrp.Position - Camera.CFrame.Position).Unit * dist)
-                    local hit = Workspace:FindPartOnRayWithIgnoreList(ray, {LocalPlayer.Character, entity})
-                    if hit then passVis = false end
-                    
-                    local drawColor = Color3.new(1,1,1)
-                    if Toggles.VisCheck then drawColor = passVis and Color3.new(1,1,1) or Color3.new(0,0,0)
-                    else drawColor = isBot and Color3.fromRGB(155, 89, 182) or Color3.new(1,1,1) end
-
-                    isVisible = true
-                    if isBot then countBot = countBot + 1 else countPlr = countPlr + 1 end
-
-                    local head = Camera:WorldToViewportPoint(entity:FindFirstChild("Head").Position + Vector3.new(0, 0.5, 0))
-                    local foot = Camera:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3, 0))
-                    local h = math.abs(head.Y - foot.Y); local w = h / 1.5
-                    
-                    esp.Box.Visible = Toggles.EspBox; esp.Box.Size = Vector2.new(w, h); esp.Box.Position = Vector2.new(pos.X - w/2, pos.Y - h/2); esp.Box.Color = drawColor
-                    esp.BoxOut.Visible = Toggles.EspBox; esp.BoxOut.Size = esp.Box.Size; esp.BoxOut.Position = esp.Box.Position
-                    
-                    esp.Name.Visible = Toggles.EspName
-                    esp.NameBg.Visible = false
-                    if Toggles.EspName then
-                        esp.Name.Text = (isBot and "[BOT] " or "") .. entity.Name
-                        esp.Name.Size = Toggles.FontSize; esp.Name.Position = Vector2.new(pos.X, pos.Y - h/2 - Toggles.FontSize - 5); esp.Name.Color = drawColor
-                        local nWidth = esp.Name.TextBounds.X; esp.NameBg.Size = Vector2.new(nWidth + 6, Toggles.FontSize + 4)
-                        esp.NameBg.Position = Vector2.new(esp.Name.Position.X - (nWidth/2) - 3, esp.Name.Position.Y - 2); esp.NameBg.Visible = true
-                    end
-
-                    local bottom = pos.Y + h/2
-                    
-                    esp.Health.Visible = Toggles.EspHealth
-                    esp.HealthBg.Visible = false
-                    if Toggles.EspHealth then 
-                        esp.Health.Text = math.floor(entity.Humanoid.Health).." HP"
-                        esp.Health.Size = Toggles.FontSize - 2; esp.Health.Position = Vector2.new(pos.X, bottom)
-                        if Toggles.VisCheck and not passVis then esp.Health.Color = drawColor else esp.Health.Color = Color3.fromHSV(math.clamp(entity.Humanoid.Health / entity.Humanoid.MaxHealth, 0, 1) * 0.3, 1, 1) end
-                        local hpWidth = esp.Health.TextBounds.X; esp.HealthBg.Size = Vector2.new(hpWidth + 6, (Toggles.FontSize - 2) + 4)
-                        esp.HealthBg.Position = Vector2.new(esp.Health.Position.X - (hpWidth/2) - 3, esp.Health.Position.Y - 2); esp.HealthBg.Visible = true
-                        bottom = bottom + Toggles.FontSize 
-                    end
-
-                    esp.Dist.Visible = Toggles.EspDistance
-                    if Toggles.EspDistance then esp.Dist.Text = math.floor(dist).."m"; esp.Dist.Position = Vector2.new(pos.X, bottom); esp.Dist.Size = Toggles.FontSize - 2; bottom = bottom + Toggles.FontSize end
-                    esp.Line.Visible = Toggles.EspLines; esp.Line.Thickness = Toggles.LineThickness; esp.Line.From = Vector2.new(center.X, Camera.ViewportSize.Y); esp.Line.To = Vector2.new(pos.X, pos.Y + h/2); esp.Line.Color = drawColor
-                    
-                    if Toggles.EspSkeleton then
-                        local isR15 = entity:FindFirstChild("UpperTorso") ~= nil
-                        local pairsToDraw = isR15 and { {"Head", "UpperTorso"}, {"UpperTorso", "LowerTorso"}, {"UpperTorso", "LeftUpperArm"}, {"LeftUpperArm", "LeftLowerArm"}, {"LeftLowerArm", "LeftHand"}, {"UpperTorso", "RightUpperArm"}, {"RightUpperArm", "RightLowerArm"}, {"RightLowerArm", "RightHand"}, {"LowerTorso", "LeftUpperLeg"}, {"LeftUpperLeg", "LeftLowerLeg"}, {"LeftLowerLeg", "LeftFoot"}, {"LowerTorso", "RightUpperLeg"}, {"RightUpperLeg", "RightLowerLeg"}, {"RightLowerLeg", "RightFoot"} } or { {"Head", "Torso"}, {"Torso", "Left Arm"}, {"Torso", "Right Arm"}, {"Torso", "Left Leg"}, {"Torso", "Right Leg"} }
-                        
-                        for i, pair in ipairs(pairsToDraw) do
-                            local p1, p2 = entity:FindFirstChild(pair[1]), entity:FindFirstChild(pair[2])
-                            if p1 and p2 then
-                                local pos1, on1 = Camera:WorldToViewportPoint(p1.Position); local pos2, on2 = Camera:WorldToViewportPoint(p2.Position)
-                                if on1 and on2 then esp.Skeleton[i].Visible = true; esp.Skeleton[i].Color = drawColor; esp.Skeleton[i].From = Vector2.new(pos1.X, pos1.Y); esp.Skeleton[i].To = Vector2.new(pos2.X, pos2.Y) else esp.Skeleton[i].Visible = false end
-                            else esp.Skeleton[i].Visible = false end
-                        end
-                    else for i = 1, 15 do esp.Skeleton[i].Visible = false end end
-                end
-            end
-        end
-        if not isVisible then 
-            esp.Box.Visible = false; esp.BoxOut.Visible = false; esp.Name.Visible = false; esp.Dist.Visible = false; esp.NameBg.Visible = false; esp.HealthBg.Visible = false; esp.Health.Visible = false; esp.Line.Visible = false; for i = 1, 15 do esp.Skeleton[i].Visible = false end
-        end
-    end
-
-    for p, esp in pairs(Cache.PlayerVisuals) do ProcessESP(p.Character, esp, false) end
-    for b, esp in pairs(Cache.BotVisuals) do ProcessESP(b, esp, true) end
-    
-    for obj, txt in pairs(Cache.WorldEspItems) do
-        if obj and obj.Parent then
-            local pos, onScreen = Camera:WorldToViewportPoint(obj:IsA("Model") and obj.PrimaryPart and obj.PrimaryPart.Position or obj.Position)
-            if onScreen then txt.Visible = true; txt.Position = Vector2.new(pos.X, pos.Y) else txt.Visible = false end
-        else txt.Visible = false end
-    end
-    
-    if Toggles.EspCount then CounterFrame.Visible = true; CounterLabel.Text = string.format("📡 РАДАР: %d ИГРОКОВ | %d БОТОВ", countPlr, countBot) else CounterFrame.Visible = false end
-    Cache.SilentTarget = target
-end)
-
-local function MakeDraggable(topbar, frame)
-    local dragging, dragStart, startPos
-    topbar.InputBegan:Connect(function(input) 
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = true; dragStart = input.Position; startPos = frame.Position end 
-    end)
-    UserInputService.InputChanged:Connect(function(input) 
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then 
-            local delta = input.Position - dragStart; frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y) 
-        end 
-    end)
-    UserInputService.InputEnded:Connect(function(input) 
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end 
-    end)
-end
-MakeDraggable(TopBar, Main)
-
-----------------------------------------------------------------
--- [ ЛОГИКА ЗАПУСКА ИНТРО ] --
-----------------------------------------------------------------
-task.spawn(function()
-    for i = 5, 1, -1 do
-        IntroTimer.Text = "Ожидание: " .. i .. " сек..."
-        task.wait(1)
-    end
-    
+local MenuGrp = Tabs.Settings:AddLeftGroupbox('Menu Settings')
+MenuGrp:AddButton('Unload UI', function() 
     pcall(function()
-        if setclipboard then
-            setclipboard(ChannelLink)
+        for _, conn in pairs(Cache.Connections) do conn:Disconnect() end
+        if FlyVelocity then FlyVelocity:Destroy() end
+        if FlyGyro then FlyGyro:Destroy() end
+        local oldSky = Lighting:FindFirstChild("NeverlorSky")
+        if oldSky then oldSky:Destroy() end
+        
+        -- Возвращаем всю траву при выгрузке скрипта
+        local terrain = Workspace:FindFirstChildOfClass("Terrain")
+        if terrain then terrain.Decoration = true end
+        for obj, oldTrans in pairs(HiddenGrass) do
+            if obj and obj.Parent then obj.Transparency = oldTrans end
+        end
+        
+        Library:Unload() 
+    end)
+end)
+MenuGrp:AddLabel('Menu Hide Bind'):AddKeyPicker('MenuBind', {Default = 'RightShift', NoUI = true, Text = 'Menu Bind'})
+Library.ToggleKeybind = Options.MenuBind
+
+--------------------------------------------------------------------------------
+-- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+--------------------------------------------------------------------------------
+local function IsAliveAndValid(player)
+    if not player or not player.Character then return false end
+    if Toggles.TeamCheck and Toggles.TeamCheck.Value and player.Team == LocalPlayer.Team then
+        return false
+    end
+    local hum = player.Character:FindFirstChildOfClass("Humanoid")
+    local root = player.Character:FindFirstChild("HumanoidRootPart")
+    if not hum or not root or hum.Health <= 0 then return false end
+    return true, hum, root
+end
+
+local function IsVisibleOnScreen(targetPart)
+    if not Toggles.WallCheck.Value then return true end
+    local myChar = LocalPlayer.Character
+    if not myChar then return false end
+    
+    local castPoints = {targetPart.Position}
+    local ignoreList = {myChar, targetPart.Parent}
+    local obscured = Camera:GetPartsObscuringTarget(castPoints, ignoreList)
+    
+    for _, part in ipairs(obscured) do
+        if part.Transparency < 0.5 and part.CanCollide and not part:IsDescendantOf(targetPart.Parent) then
+            return false
+        end
+    end
+    return true
+end
+
+local currentRandomPart = "Head"
+task.spawn(function()
+    while task.wait(1 + math.random() * 0.3) do 
+        if Options.HitboxPart.Value == "Randomize" then 
+            currentRandomPart = (currentRandomPart == "Head" and "HumanoidRootPart" or "Head") 
+        else 
+            currentRandomPart = Options.HitboxPart.Value 
+        end
+    end
+end)
+
+local function GetPlayerInventory(player)
+    local items = {}
+    if not player or not player.Character then return "None" end
+    local tool = player.Character:FindFirstChildOfClass("Tool")
+    if tool then table.insert(items, tool.Name .. " (Eq)") end
+    local backpack = player:FindFirstChild("Backpack")
+    if backpack then
+        for _, child in ipairs(backpack:GetChildren()) do
+            if child:IsA("Tool") then table.insert(items, child.Name) end
+        end
+    end
+    return #items == 0 and "Empty" or table.concat(items, ", ")
+end
+
+local function CleanFly()
+    if FlyVelocity then FlyVelocity:Destroy() FlyVelocity = nil end
+    if FlyGyro then FlyGyro:Destroy() FlyGyro = nil end
+    local char = LocalPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if hum then hum.PlatformStand = false end
+end
+
+--------------------------------------------------------------------------------
+-- ТАРГЕТ ХУД СЕТАП
+--------------------------------------------------------------------------------
+local oldHud = CoreGui:FindFirstChild("LinoriaTargetHUD") or LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("LinoriaTargetHUD")
+if oldHud then oldHud:Destroy() end
+
+local ScreenGui = Instance.new("ScreenGui", CoreGui)
+ScreenGui.Name = "LinoriaTargetHUD"
+ScreenGui.ResetOnSpawn = false
+
+local MainFrame = Instance.new("Frame", ScreenGui)
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 300, 0, 100)
+MainFrame.Position = UDim2.new(0.5, -150, 0.72, 0)
+MainFrame.BackgroundColor3 = ThemeManager.BackgroundColor
+MainFrame.BackgroundTransparency = 0.15
+MainFrame.BorderSizePixel = 0
+MainFrame.Visible = false
+
+local MainCorner = Instance.new("UICorner", MainFrame)
+MainCorner.CornerRadius = UDim.new(0, 10)
+
+local FrameStroke = Instance.new("UIStroke", MainFrame)
+FrameStroke.Thickness = 1.5
+FrameStroke.Color = ThemeManager.OutlineColor
+
+local AvatarImage = Instance.new("ImageLabel", MainFrame)
+AvatarImage.Size = UDim2.new(0, 55, 0, 55)
+AvatarImage.Position = UDim2.new(0, 10, 0, 10)
+AvatarImage.BackgroundColor3 = ThemeManager.MainColor
+AvatarImage.BorderSizePixel = 0
+Instance.new("UICorner", AvatarImage).CornerRadius = UDim.new(0, 8)
+
+local NameLabel = Instance.new("TextLabel", MainFrame)
+NameLabel.Size = UDim2.new(0, 150, 0, 20)
+NameLabel.Position = UDim2.new(0, 75, 0, 10)
+NameLabel.BackgroundTransparency = 1
+NameLabel.TextColor3 = ThemeManager.TextColor
+NameLabel.TextSize = 14
+NameLabel.Font = Enum.Font.GothamBold
+NameLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+local DistLabel = Instance.new("TextLabel", MainFrame)
+DistLabel.Size = UDim2.new(0, 50, 0, 20)
+DistLabel.Position = UDim2.new(0, 240, 0, 10)
+DistLabel.BackgroundTransparency = 1
+DistLabel.TextColor3 = Color3.fromRGB(170, 150, 200)
+DistLabel.TextSize = 12
+DistLabel.Font = Enum.Font.GothamSemibold
+DistLabel.TextXAlignment = Enum.TextXAlignment.Right
+
+local HealthBarBg = Instance.new("Frame", MainFrame)
+HealthBarBg.Size = UDim2.new(0, 215, 0, 8)
+HealthBarBg.Position = UDim2.new(0, 75, 0, 36)
+HealthBarBg.BackgroundColor3 = Color3.fromRGB(35, 25, 45)
+Instance.new("UICorner", HealthBarBg).CornerRadius = UDim.new(0, 4)
+
+local HealthBar = Instance.new("Frame", HealthBarBg)
+HealthBar.Size = UDim2.new(1, 0, 1, 0)
+HealthBar.BackgroundColor3 = ThemeManager.AccentColor
+Instance.new("UICorner", HealthBar).CornerRadius = UDim.new(0, 4)
+
+local HealthText = Instance.new("TextLabel", MainFrame)
+HealthText.Size = UDim2.new(0, 215, 0, 15)
+HealthText.Position = UDim2.new(0, 75, 0, 48)
+HealthText.BackgroundTransparency = 1
+HealthText.TextColor3 = Color3.fromRGB(210, 200, 230)
+HealthText.TextSize = 11
+HealthText.Font = Enum.Font.Gotham
+HealthText.TextXAlignment = Enum.TextXAlignment.Center
+
+local InvLabel = Instance.new("TextLabel", MainFrame)
+InvLabel.Size = UDim2.new(0, 280, 0, 20)
+InvLabel.Position = UDim2.new(0, 10, 0, 72)
+InvLabel.BackgroundTransparency = 1
+InvLabel.TextColor3 = Color3.fromRGB(218, 160, 255)
+InvLabel.TextSize = 11
+InvLabel.Font = Enum.Font.Code
+InvLabel.TextXAlignment = Enum.TextXAlignment.Left
+InvLabel.TextTruncate = Enum.TextTruncate.AtEnd
+
+--------------------------------------------------------------------------------
+-- ESP СЕТАП
+--------------------------------------------------------------------------------
+local espObjects = {}
+local chamsObjects = {}
+
+local function createESP(player)
+    if player == LocalPlayer then return end
+    
+    local esp = {
+        Box = Drawing.new("Square"),
+        Name = Drawing.new("Text"),
+        Dist = Drawing.new("Text"),
+        HealthBg = Drawing.new("Square"),
+        HealthBar = Drawing.new("Square")
+    }
+    esp.Box.Thickness = 1; esp.Box.Color = ThemeManager.AccentColor; esp.Box.Filled = false; esp.Box.Visible = false
+    esp.Name.Size = 14; esp.Name.Center = true; esp.Name.Outline = true; esp.Name.Color = Color3.fromRGB(255, 255, 255); esp.Name.Font = 2; esp.Name.Visible = false
+    esp.Dist.Size = 12; esp.Dist.Center = true; esp.Dist.Outline = true; esp.Dist.Color = Color3.fromRGB(210, 190, 240); esp.Dist.Font = 2; esp.Dist.Visible = false
+    esp.HealthBg.Thickness = 1; esp.HealthBg.Color = Color3.fromRGB(0, 0, 0); esp.HealthBg.Filled = true; esp.HealthBg.Visible = false
+    esp.HealthBar.Thickness = 1; esp.HealthBar.Color = ThemeManager.AccentColor; esp.HealthBar.Filled = true; esp.HealthBar.Visible = false
+    espObjects[player] = esp
+
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "E_Highlight"
+    highlight.FillColor = ThemeManager.AccentColor
+    highlight.FillTransparency = 0.6
+    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    highlight.Enabled = false
+    highlight.Parent = ScreenGui
+    chamsObjects[player] = highlight
+end
+
+local function removeESP(player)
+    if espObjects[player] then 
+        for _, obj in pairs(espObjects[player]) do pcall(function() obj:Remove() end) end 
+        espObjects[player] = nil 
+    end
+    if chamsObjects[player] then 
+        pcall(function() chamsObjects[player]:Destroy() end) 
+        chamsObjects[player] = nil 
+    end
+end
+
+for _, p in pairs(Players:GetPlayers()) do createESP(p) end
+table.insert(Cache.Connections, Players.PlayerAdded:Connect(createESP))
+table.insert(Cache.Connections, Players.PlayerRemoving:Connect(removeESP))
+
+--------------------------------------------------------------------------------
+-- ФУНКЦИЯ ПОЛУЧЕНИЯ ЦЕЛИ ИЗ FOV
+--------------------------------------------------------------------------------
+local function GetTargetFromFOV()
+    local best, cRad = nil, Options.FovRadius.Value
+    if Toggles.DynamicFov.Value then cRad = (Options.FovRadius.Value / Camera.FieldOfView) * 70 end
+    UI_Elements.FovCircle.Radius = cRad
+    UI_Elements.FovCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    UI_Elements.FovCircle.Visible = Toggles.DrawFov.Value
+    
+    local sDist = cRad
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            local alive, hum, root = IsAliveAndValid(p)
+            if alive then
+                local hitb = p.Character:FindFirstChild(currentRandomPart)
+                if hitb then
+                    local sp, onS = Camera:WorldToViewportPoint(hitb.Position)
+                    if onS and IsVisibleOnScreen(hitb) then
+                        local dC = (Vector2.new(sp.X, sp.Y) - UI_Elements.FovCircle.Position).Magnitude
+                        local realDist = (root.Position - Camera.CFrame.Position).Magnitude
+                        if realDist < 15 then dC = dC * 0.5 end
+
+                        if dC < sDist then sDist = dC; best = hitb end
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+--------------------------------------------------------------------------------
+-- ХУКИ И МОДИФИКАЦИЯ ОРУЖИЯ (SILENT AIM & NO RECOIL)
+--------------------------------------------------------------------------------
+local OldNamecall
+OldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+    local args = {...}
+    local method = getnamecallmethod()
+    
+    if Toggles.SilentAim.Value and Cache.CurrentSilentTarget and not checkcaller() then
+        if method == "Raycast" and self == Workspace then
+            local origin = args[1]
+            local targetPos = Cache.CurrentSilentTarget.Position
+            args[2] = (targetPos - origin).Unit * args[2].Magnitude
+            return OldNamecall(self, unpack(args))
+        end
+        
+        if method == "FindPartOnRay" or method == "FindPartOnRayWithIgnoreList" then
+            local targetPos = Cache.CurrentSilentTarget.Position
+            args[1] = Ray.new(args[1].Origin, (targetPos - args[1].Origin).Unit * 9999)
+            return OldNamecall(self, unpack(args))
+        end
+    end
+    return OldNamecall(self, ...)
+end)
+
+local function ProcessToolMods()
+    pcall(function()
+        -- ИНЖЕКТ ФУНКЦИИ NO RECOIL В КЛАСС RECOILHANDLER
+        local RecoilPath = game:GetService("ReplicatedStorage"):FindFirstChild("Gun") 
+            and game:GetService("ReplicatedStorage").Gun:FindFirstChild("Scripts") 
+            and game:GetService("ReplicatedStorage").Gun.Scripts:FindFirstChild("RecoilHandler")
+            
+        if RecoilPath then
+            local RecoilHandler = require(RecoilPath)
+            if RecoilHandler and type(RecoilHandler) == "table" and not rawget(RecoilHandler, "__patched") then
+                table.clear(RecoilHandler)
+                
+                RecoilHandler.__index = RecoilHandler
+                RecoilHandler.__patched = true 
+                
+                RecoilHandler.new = function(xFunction, yFunction, startingPoint, step, degreesPerUnit)
+                    local recoilFunctionInstance = setmetatable({}, RecoilHandler)
+                    recoilFunctionInstance.XFunction = xFunction
+                    recoilFunctionInstance.YFunction = yFunction
+                    recoilFunctionInstance.StartingPoint = startingPoint or 0
+                    recoilFunctionInstance.Step = step or 1
+                    recoilFunctionInstance.DegreesPerUnit = degreesPerUnit or 5
+                    recoilFunctionInstance.RadiansPerUnit = math.rad(recoilFunctionInstance.DegreesPerUnit)
+                    recoilFunctionInstance.RecoilMultiplier = 0
+                    recoilFunctionInstance:reset()
+                    return recoilFunctionInstance
+                end
+
+                RecoilHandler.fromRecoilInfo = function(recoilInfo)
+                    return RecoilHandler.new(
+                        recoilInfo.XFunction, recoilInfo.YFunction, recoilInfo.StartingPoint, recoilInfo.Step, recoilInfo.DegreesPerUnit
+                    )
+                end
+
+                RecoilHandler.setRecoilMultiplier = function(recoilInfo, multiplier)
+                    recoilInfo.RecoilMultiplier = 0
+                end
+
+                RecoilHandler.reset = function(recoilInstance)
+                    recoilInstance.CurrentStep = recoilInstance.StartingPoint
+                    recoilInstance.PreviousX = recoilInstance.XFunction(recoilInstance.CurrentStep)
+                    recoilInstance.PreviousY = recoilInstance.YFunction(recoilInstance.CurrentStep)
+                end
+
+                RecoilHandler.getFinalRecoilMultiplier = function(recoilInfo)
+                    return 0
+                end
+
+                RecoilHandler.nextStep = function(recoilInstance)
+                    recoilInstance.CurrentStep = recoilInstance.CurrentStep + recoilInstance.Step
+                    local currentX = recoilInstance.XFunction(recoilInstance.CurrentStep)
+                    local currentY = recoilInstance.YFunction(recoilInstance.CurrentStep)
+                    recoilInstance.PreviousX = currentX
+                    recoilInstance.PreviousY = currentY
+                end
+            end
+        end
+
+        -- Классический обход таблиц в памяти (для других пушек)
+        for _, v in pairs(getgc(true)) do
+            if type(v) == "table" then
+                if rawget(v, "getfireDirection") or rawget(v, "GetFireDirection") then
+                    local key = rawget(v, "getfireDirection") and "getfireDirection" or "GetFireDirection"
+                    v[key] = function(self, origin, ...)
+                        if Toggles.SilentAim.Value and Cache.CurrentSilentTarget and not checkcaller() then 
+                            return (Cache.CurrentSilentTarget.Position - origin).Unit 
+                        end
+                        return Camera.CFrame.LookVector
+                    end
+                end
+                
+                if rawget(v, "BaseBulletVelocity") or rawget(v, "Velocity") then
+                    rawset(v, "BaseBulletVelocity", Toggles.SilentAim.Value and 999999 or 200)
+                    rawset(v, "Velocity", Toggles.SilentAim.Value and 999999 or 200)
+                end
+
+                if Toggles.SilentAim.Value then
+                    if rawget(v, "Recoil") or rawget(v, "recoil") then rawset(v, "Recoil", 0); rawset(v, "recoil", 0) end
+                    if rawget(v, "Spread") or rawget(v, "spread") then rawset(v, "Spread", 0); rawset(v, "spread", 0) end
+                    if rawget(v, "KickUp") or rawget(v, "kickUp") then rawset(v, "KickUp", 0); rawset(v, "kickUp", 0) end
+                end
+            end
         end
     end)
-    
-    IntroTimer.Text = "Готово!"
-    IntroText.Text = "Ссылка на наш канал скопирована!\n\nПожалуйста, вставьте её в браузер,\nчтобы подписаться и поддержать проект.\n\nЗапуск меню..."
-    
-    task.wait(2.5)
-    
-    IntroFrame:Destroy()
-    Main.Visible = true
-    ToggleBtn.Visible = true
-    Watermark.Visible = true
-    print("LebroTools V4.1 успешно запущен!")
+end
+
+task.spawn(function()
+    while task.wait(1.5 + math.random()) do 
+        if Toggles.SilentAim.Value then ProcessToolMods() end 
+    end
 end)
+
+table.insert(Cache.Connections, LocalPlayer.CharacterAdded:Connect(function(char)
+    CleanFly()
+    char.ChildAdded:Connect(function(c) if c:IsA("Tool") then task.spawn(ProcessToolMods) end end)
+end))
+
+--------------------------------------------------------------------------------
+-- ГЛАВНЫЙ ЦИКЛ ОБНОВЛЕНИЯ
+--------------------------------------------------------------------------------
+local lastTargetPlr = nil
+
+table.insert(Cache.Connections, RunService.RenderStepped:Connect(function()
+    local Character = LocalPlayer.Character
+    local RootPart = Character and Character:FindFirstChild("HumanoidRootPart")
+    local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
+    
+    -- Цикл Fullbright
+    if Toggles.FullbrightToggle and Toggles.FullbrightToggle.Value then
+        Lighting.Brightness = 2
+        Lighting.ClockTime = 14
+        Lighting.FogEnd = 999999
+        Lighting.GlobalShadows = false
+        Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
+    end
+
+    -- 1. Сбор цели для Silent Aim
+    local targetPart = GetTargetFromFOV()
+    Cache.CurrentSilentTarget = targetPart
+    
+    -- Отрисовка точки таргета
+    if targetPart and Toggles.SilentAim.Value then
+        local targetPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+        if onScreen then
+            UI_Elements.TargetDot.Position = Vector2.new(targetPos.X, targetPos.Y)
+            UI_Elements.TargetDot.Visible = true
+        else
+            UI_Elements.TargetDot.Visible = false
+        end
+    else
+        UI_Elements.TargetDot.Visible = false
+    end
+    
+    -- 2. Логика Target HUD
+    if HUD_Settings.Enabled and targetPart then
+        local targetPlayer = Players:GetPlayerFromCharacter(targetPart.Parent)
+        if targetPlayer and targetPlayer ~= LocalPlayer then
+            local tAlive, tHum, tRoot = IsAliveAndValid(targetPlayer)
+            if tAlive then
+                lastTargetPlr = targetPlayer
+                NameLabel.Text = targetPlayer.Name
+                DistLabel.Text = math.floor((tRoot.Position - (RootPart and RootPart.Position or Vector3.new())).Magnitude) .. " studs"
+                
+                -- Расчет здоровья
+                local healthRatio = math.clamp(tHum.Health / tHum.MaxHealth, 0, 1)
+                TweenService:Create(HealthBar, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                    Size = UDim2.new(healthRatio, 0, 1, 0)
+                }):Play()
+                
+                HealthText.Text = math.floor(tHum.Health) .. " / " .. math.floor(tHum.MaxHealth)
+                InvLabel.Text = "Inventory: " .. GetPlayerInventory(targetPlayer)
+                
+                -- Аватарка
+                AvatarImage.Image = "rbxthumb://type=AvatarHeadShot&id=" .. targetPlayer.UserId .. "&w=150&h=150"
+                MainFrame.Visible = true
+            else
+                MainFrame.Visible = false
+            end
+        end
+    else
+        MainFrame.Visible = false
+    end
+    
+    -- 3. Логика Управления Fly
+    if Toggles.FlyEnabled and Toggles.FlyEnabled.Value and RootPart and Humanoid then
+        if not FlyVelocity then
+            FlyVelocity = Instance.new("BodyVelocity")
+            FlyVelocity.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+            FlyVelocity.Parent = RootPart
+        end
+        if not FlyGyro then
+            FlyGyro = Instance.new("BodyGyro")
+            FlyGyro.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
+            FlyGyro.CFrame = Camera.CFrame
+            FlyGyro.Parent = RootPart
+        end
+        
+        Humanoid.PlatformStand = true
+        FlyGyro.CFrame = Camera.CFrame
+        
+        local moveDir = Humanoid.MoveDirection
+        if moveDir.Magnitude > 0 then
+            FlyVelocity.Velocity = moveDir * Options.FlySpeed.Value
+        else
+            FlyVelocity.Velocity = Vector3.new(0, 0, 0)
+        end
+    else
+        CleanFly()
+    end
+    
+    -- 4. Отрисовка ESP & Chams
+    local masterEsp = Toggles.MasterEsp and Toggles.MasterEsp.Value
+    
+    for player, esp in pairs(espObjects) do
+        local alive, hum, root = IsAliveAndValid(player)
+        local chams = chamsObjects[player]
+        
+        if masterEsp and alive then
+            local char = player.Character
+            local head = char:FindFirstChild("Head")
+            
+            if head then
+                local rootPos, rootPosOnScreen = Camera:WorldToViewportPoint(root.Position)
+                local headPos, headPosOnScreen = Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
+                local legPos, legPosOnScreen = Camera:WorldToViewportPoint(root.Position - Vector3.new(0, 3, 0))
+                
+                if rootPosOnScreen then
+                    local boxHeight = math.abs(headPos.Y - legPos.Y)
+                    local boxWidth = boxHeight * 0.6
+                    
+                    -- Box ESP
+                    if Toggles.EspBox and Toggles.EspBox.Value then
+                        esp.Box.Size = Vector2.new(boxWidth, boxHeight)
+                        esp.Box.Position = Vector2.new(rootPos.X - boxWidth / 2, headPos.Y)
+                        esp.Box.Visible = true
+                    else
+                        esp.Box.Visible = false
+                    end
+                    
+                    -- Name ESP
+                    if Toggles.EspName and Toggles.EspName.Value then
+                        esp.Name.Text = player.Name
+                        esp.Name.Position = Vector2.new(rootPos.X, headPos.Y - 20)
+                        esp.Name.Visible = true
+                    else
+                        esp.Name.Visible = false
+                    end
+                    
+                    -- Distance ESP
+                    if Toggles.EspDist and Toggles.EspDist.Value then
+                        local distance = RootPart and math.floor((root.Position - RootPart.Position).Magnitude) or 0
+                        esp.Dist.Text = tostring(distance) .. "m"
+                        esp.Dist.Position = Vector2.new(rootPos.X, legPos.Y + 5)
+                        esp.Dist.Visible = true
+                    else
+                        esp.Dist.Visible = false
+                    end
+                    
+                    -- Health Bar ESP
+                    if Toggles.EspHealth and Toggles.EspHealth.Value then
+                        local barHeight = boxHeight
+                        local barWidth = 3
+                        local barPosX = rootPos.X - (boxWidth / 2) - 7
+                        local barPosY = headPos.Y
+                        
+                        esp.HealthBg.Size = Vector2.new(barWidth, barHeight)
+                        esp.HealthBg.Position = Vector2.new(barPosX, barPosY)
+                        esp.HealthBg.Visible = true
+                        
+                        local healthFactor = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
+                        esp.HealthBar.Size = Vector2.new(barWidth, barHeight * healthFactor)
+                        esp.HealthBar.Position = Vector2.new(barPosX, barPosY + (barHeight * (1 - healthFactor)))
+                        esp.HealthBar.Visible = true
+                    else
+                        esp.HealthBg.Visible = false
+                        esp.HealthBar.Visible = false
+                    end
+                else
+                    for _, drawing in pairs(esp) do drawing.Visible = false end
+                end
+            else
+                for _, drawing in pairs(esp) do drawing.Visible = false end
+            end
+            
+            -- Chams
+            if chams then
+                chams.Enabled = Toggles.EspHighlight and Toggles.EspHighlight.Value or false
+                if chams.Enabled then chams.Adornee = char else chams.Adornee = nil end
+            end
+        else
+            for _, drawing in pairs(esp) do drawing.Visible = false end
+            if chams then chams.Enabled = false chams.Adornee = nil end
+        end
+    end
+end))
+
